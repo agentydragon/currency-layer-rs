@@ -8,6 +8,7 @@ repository = "https://github.com/RyanBluth/currency-layer-rs"
 license = "MIT"
 readme = "README.md"
 keywords = ["currency", "layer", "exchange", "rate", "rates"]
+edition = "2018"
 
 [dependencies]
 serde = "1.0.123"

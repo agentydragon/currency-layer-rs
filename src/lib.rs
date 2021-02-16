@@ -17,7 +17,6 @@ pub use types::CurrencyRates;
 use types::*;
 
 use std::collections::HashMap;
-use std::io::Read;
 
 use failure::Error;
 
@@ -33,7 +32,8 @@ pub enum CurrencyLayerError {
 
     /// This error will occure if Currency Layer returns an error response
     #[fail(
-        display = "Currency Layer responded with an error: Code: {}. Message: {}", code, message
+        display = "Currency Layer responded with an error: Code: {}. Message: {}",
+        code, message
     )]
     ServerError {
         /// The error code returned in the message body
@@ -66,34 +66,36 @@ impl Client {
     /// Get the excahnge rates for the provide currencies.
     ///
     /// All values are relative to the base currency.
-    pub fn get_live_rates(
+    pub async fn get_live_rates(
         &self,
         base: &str,
         currencies: Vec<&str>,
     ) -> Result<CurrencyRates, Error> {
-        return self.get_rates(base, currencies, None, "http://apilayer.net/api/live");
+        self.get_rates(base, currencies, None, "http://apilayer.net/api/live")
+            .await
     }
 
-    /// Get the excahnge rates for the provide currencies on a paticular day.
+    /// Get the exchange rates for the provide currencies on a paticular day.
     ///
     /// All values are relative to the base currency.
     ///
     /// date is a tuple 3 in the format year, month, day.
-    pub fn get_historical_rates(
+    pub async fn get_historical_rates(
         &self,
         base: &str,
         currencies: Vec<&str>,
         date: (u16, u16, u16),
     ) -> Result<CurrencyRates, Error> {
-        return self.get_rates(
+        self.get_rates(
             base,
             currencies,
             Some(date),
             "http://apilayer.net/api/historical",
-        );
+        )
+        .await
     }
 
-    fn get_rates(
+    async fn get_rates(
         &self,
         base: &str,
         currencies: Vec<&str>,
@@ -116,48 +118,46 @@ impl Client {
             query_items.push(("date", format!("{}-{:02}-{:02}", d.0, d.1, d.2)));
         }
 
-        let request = self.http_client.get(url).query(&query_items).send();
+        let response = self.http_client.get(url).query(&query_items).send().await?;
 
-        let mut res = request?;
+        let body_buf = response.text().await?;
 
-        let mut body_buf = String::new();
-
-        res.read_to_string(&mut body_buf)?;
-
-        let success_guard: SuccessGuard = serde_json::from_str(body_buf.as_str())?;
-
-        if success_guard.success {
-            let result: CurrencyRates = serde_json::from_str(body_buf.as_str())?;
-
-            if let Some(base_quote) = result.quotes.get(&format!("USD{}", base)) {
-                let base_val = 1.0 / base_quote;
-
-                let mut res = CurrencyRates {
-                    timestamp: result.timestamp,
-                    quotes: HashMap::new(),
-                };
-
-                for c in currencies {
-                    if let Some(quote) = result.quotes.get(&format!("USD{}", c)) {
-                        res.quotes.insert(String::from(c), base_val * quote);
-                    } else {
-                        return Err(CurrencyLayerError::InvalidCurrency {
-                            symbol: String::from(c),
-                        }.into());
-                    }
-                }
-                return Ok(res);
-            } else {
-                return Err(CurrencyLayerError::InvalidCurrency {
-                    symbol: String::from(base),
-                }.into());
-            }
-        } else {
-            let result: ErrorResponse = serde_json::from_str(body_buf.as_str())?;
+        let success_guard: SuccessGuard = serde_json::from_str(&body_buf)?;
+        if !success_guard.success {
+            let result: ErrorResponse = serde_json::from_str(&body_buf)?;
             return Err(CurrencyLayerError::ServerError {
                 code: result.error.code,
                 message: result.error.info,
-            }.into());
+            }
+            .into());
+        }
+
+        let result: CurrencyRates = serde_json::from_str(&body_buf)?;
+
+        if let Some(base_quote) = result.quotes.get(&format!("USD{}", base)) {
+            let base_val = 1.0 / base_quote;
+
+            let mut res = CurrencyRates {
+                timestamp: result.timestamp,
+                quotes: HashMap::new(),
+            };
+
+            for c in currencies {
+                if let Some(quote) = result.quotes.get(&format!("USD{}", c)) {
+                    res.quotes.insert(String::from(c), base_val * quote);
+                } else {
+                    return Err(CurrencyLayerError::InvalidCurrency {
+                        symbol: String::from(c),
+                    }
+                    .into());
+                }
+            }
+            return Ok(res);
+        } else {
+            return Err(CurrencyLayerError::InvalidCurrency {
+                symbol: String::from(base),
+            }
+            .into());
         }
     }
 }
