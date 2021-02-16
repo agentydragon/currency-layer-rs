@@ -11,8 +11,13 @@ keywords = ["currency", "layer", "exchange", "rate", "rates"]
 edition = "2018"
 
 [dependencies]
-serde = "1.0.123"
+chrono = {version="0.4.19",features=["serde"]}
+serde = {version="1.0.123",features=["derive"]}
 serde_json = "1.0.59"
-serde_derive = "1.0.123"
 reqwest = "0.11.0"
 failure = "0.1.8"
+rusty-money = {version="0.4.1",features=["iso"]}
+rust_decimal = "1.10.3"
+
+[dev-dependencies]
+tokio = {version="1.2.0",features=["macros", "rt-multi-thread"]}
